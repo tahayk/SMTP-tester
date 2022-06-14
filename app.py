@@ -72,11 +72,11 @@ if __name__ == "__main__":
         msg = MIMEMultipart()
         msg['Subject'] = Header("Test", 'utf-8')
         msg['From'] = config("emailFrom")
-        msg['To'] = "tahayk2@gmail.com"
+        msg['To'] = To
         body = MIMEText("test message")
         msg.attach(body)
         try:
-            s.sendmail(msg['FROM'], ["tahayk2@gmail.com"], msg.as_string().encode('ascii'))
+            s.sendmail(msg['FROM'], [To], msg.as_string().encode('ascii'))
         except Exception as e:
             print("!! email failed: "),
             print(e)
