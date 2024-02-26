@@ -11,6 +11,10 @@ emailSslKey: ''
 emailSslCert: ''
 emailFrom: 'openreplay@mycompany.com' # sender email, use your domain' 
 """
+HTMLs = [
+    "html/simple.html",
+    "html/simple_with_image.html"
+]
 # ---------- ---------- ----------
 
 
@@ -21,6 +25,8 @@ from email.mime.text import MIMEText
 from time import sleep
 from email.mime.image import MIMEImage
 import base64
+import re
+import logging
 
 _config = {}
 for line in params.splitlines():
@@ -37,6 +43,9 @@ config = lambda key: _config[key]
 class EmptySMTP:
     def sendmail(self, from_addr, to_addrs, msg, mail_options=(), rcpt_options=()):
         print("!! CANNOT SEND EMAIL, NO VALID SMTP CONFIGURATION FOUND")
+
+    def send_message(self, msg):
+        self.sendmail(msg["FROM"], msg["TO"], msg.as_string())
 
 
 class SMTPClient:
@@ -70,103 +79,76 @@ class SMTPClient:
         self.server.quit()
 
 
-HTML_1 = """<!DOCTYPE html>
-<html>
-<body style="margin: 0; padding: 0; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen-Sans,Ubuntu,Cantarell,'Helvetica Neue',sans-serif; color: #6c757d">
-<table width="100%" border="0" style="background-color: #f6f6f6">
-    <tr>
-        <td>
-            <div style="border-radius: 3px; border-radius:4px; overflow: hidden; background-color: #ffffff; max-width: 600px; margin:20px auto;">
-                <table style="margin:20px auto; border:1px solid transparent; border-collapse:collapse; background-color: #ffffff; max-width:600px"
-                       width="100%">
-                    <tr>
-                        <td style="padding:10px 30px;">
-                            a HTML email.
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </td>
-    </tr>
-</table>
-</body>
-</html>
-"""
-HTML_2 = """<!DOCTYPE html>
-<html>
-<body style="margin: 0; padding: 0; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen-Sans,Ubuntu,Cantarell,'Helvetica Neue',sans-serif; color: #6c757d">
-<table width="100%" border="0" style="background-color: #f6f6f6">
-    <tr>
-        <td>
-            <div style="border-radius: 3px; border-radius:4px; overflow: hidden; background-color: #ffffff; max-width: 600px; margin:20px auto;">
-                <table style="margin:20px auto; border:1px solid transparent; border-collapse:collapse; background-color: #ffffff; max-width:600px"
-                       width="100%">
-                    <!--Main Image-->
-                    <tr>
-                        <td style="padding:10px 30px;">
-                            <center>
-                                <img src="cid:img_0" alt="OpenReplay" width="100%" style="max-width: 120px;">
-                            </center>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-top: 30px">
-                            a HTML email with attachment.
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </td>
-    </tr>
-</table>
-</body>
-</html>
-"""
+def get_html_from_file(source):
+    with open(source, "r") as body:
+        BODY_HTML = body.read()
 
-if __name__ == "__main__":
+    return BODY_HTML
+
+
+def replace_images(HTML):
+    pattern_holder = re.compile(r'<img[\w\W\n]+?(src="[a-zA-Z0-9.+\/\\-]+")')
+    pattern_src = re.compile(r'src="(.*?)"')
+    mime_img = []
+    swap = []
+    for m in re.finditer(pattern_holder, HTML):
+        sub = m.groups()[0]
+        sub = str(re.findall(pattern_src, sub)[0])
+        if sub not in swap:
+            swap.append(sub)
+            HTML = HTML.replace(sub, f"cid:img-{len(mime_img)}")
+            sub = "html/" + sub
+            with open(sub, "rb") as image_file:
+                img = base64.b64encode(image_file.read()).decode('utf-8')
+            mime_img.append(MIMEImage(base64.standard_b64decode(img)))
+            mime_img[-1].add_header('Content-ID', f'<img-{len(mime_img) - 1}>')
+    return HTML, mime_img
+
+
+def send_html(BODY_HTML, SUBJECT, recipients):
+    BODY_HTML, mime_img = replace_images(BODY_HTML)
+
+    msg = MIMEMultipart()
+    msg['Subject'] = Header(SUBJECT, 'utf-8')
+    msg['From'] = config("emailFrom")
+    msg['To'] = ""
+    body = MIMEText(BODY_HTML.encode('utf-8'), 'html', "utf-8")
+    msg.attach(body)
+    for m in mime_img:
+        msg.attach(m)
+
+    with SMTPClient() as s:
+        for r in recipients:
+            msg.replace_header("To", r)
+            r = [r]
+            try:
+                logging.info(f"Email sending to: {r}")
+                s.send_message(msg)
+            except Exception as e:
+                logging.error("!!! Email error!")
+                logging.error(e)
+
+
+def send_text(recipients, text, subject):
     with SMTPClient() as s:
         msg = MIMEMultipart()
-        msg['Subject'] = Header("Text email", 'utf-8')
+        msg['Subject'] = Header(subject, 'utf-8')
         msg['From'] = config("emailFrom")
-        msg['To'] = To
-        body = MIMEText("a text email.")
+        msg['To'] = ", ".join(recipients)
+        body = MIMEText(text)
         msg.attach(body)
         try:
-            s.sendmail(msg['FROM'], [To], msg.as_string().encode('ascii'))
+            s.send_message(msg)
         except Exception as e:
-            print("!! email failed: "),
-            print(e)
-        print("Text email sent!")
+            logging.error("!! Text-email failed: " + subject),
+            logging.error(e)
 
-        sleep(1)
-        msg = MIMEMultipart()
-        msg['Subject'] = Header("HTML email", 'utf-8')
-        msg['From'] = config("emailFrom")
-        msg['To'] = To
-        body = MIMEText(HTML_1.encode('utf-8'), 'html', "utf-8")
-        msg.attach(body)
-        try:
-            s.sendmail(msg['FROM'], [To], msg.as_string().encode('ascii'))
-        except Exception as e:
-            print("!! HTML email failed: "),
-            print(e)
-        print("HTML email sent!")
 
+if __name__ == "__main__":
+    send_text(recipients=[To], text="a text email.", subject="Text email")
+    logging.warning("Text email sent!")
+    sleep(1)
+    for f in HTMLs:
+        send_html(BODY_HTML=get_html_from_file(f), SUBJECT=f'HTML email: {f}', recipients=[To])
+        logging.warning(f"HTML email sent! {f}")
         sleep(1)
-        msg = MIMEMultipart()
-        msg['Subject'] = Header("HTML-attachment email", 'utf-8')
-        msg['From'] = config("emailFrom")
-        msg['To'] = To
-        body = MIMEText(HTML_2.encode('utf-8'), 'html', "utf-8")
-        msg.attach(body)
-        with open('./logo.png', "rb") as image_file:
-            img = base64.b64encode(image_file.read()).decode('utf-8')
-        img = MIMEImage(base64.standard_b64decode(img))
-        img.add_header('Content-ID', f'<img_0>')
-        msg.attach(img)
-        try:
-            s.sendmail(msg['FROM'], [To], msg.as_string().encode('ascii'))
-        except Exception as e:
-            print("!! HTML-attachment email failed: "),
-            print(e)
-        print("HTML-attachment email sent!")
