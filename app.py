@@ -18,15 +18,14 @@ HTMLs = [
 # ---------- ---------- ----------
 
 
+import logging
+import re
 import smtplib
 from email.header import Header
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from time import sleep
-from email.mime.image import MIMEImage
-import base64
-import re
-import logging
 
 _config = {}
 for line in params.splitlines():
