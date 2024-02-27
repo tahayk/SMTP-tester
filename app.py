@@ -96,31 +96,31 @@ def replace_images(HTML):
         sub = str(re.findall(pattern_src, sub)[0])
         if sub not in swap:
             swap.append(sub)
-            HTML = HTML.replace(sub, f"cid:img-{len(mime_img)}")
+            cid = f"img-{len(mime_img)}"
+            HTML = HTML.replace(sub, f"cid:{cid}")
             sub = "html/" + sub
             with open(sub, "rb") as image_file:
-                img = base64.b64encode(image_file.read()).decode('utf-8')
-            mime_img.append(MIMEImage(base64.standard_b64decode(img)))
-            mime_img[-1].add_header('Content-ID', f'<img-{len(mime_img) - 1}>')
+                img_data = image_file.read()
+            mime_img.append(MIMEImage(img_data))
+            mime_img[-1].add_header('Content-ID', f'<{cid}>')
     return HTML, mime_img
 
 
 def send_html(BODY_HTML, SUBJECT, recipients):
     BODY_HTML, mime_img = replace_images(BODY_HTML)
 
-    msg = MIMEMultipart()
+    msg = MIMEMultipart('related')
     msg['Subject'] = Header(SUBJECT, 'utf-8')
     msg['From'] = config("emailFrom")
-    msg['To'] = ""
-    body = MIMEText(BODY_HTML.encode('utf-8'), 'html', "utf-8")
+
+    body = MIMEText(BODY_HTML, 'html', "utf-8")
     msg.attach(body)
     for m in mime_img:
         msg.attach(m)
 
     with SMTPClient() as s:
         for r in recipients:
-            msg.replace_header("To", r)
-            r = [r]
+            msg['To'] = r
             try:
                 logging.info(f"Email sending to: {r}")
                 s.send_message(msg)
